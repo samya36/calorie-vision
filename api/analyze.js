@@ -1,6 +1,6 @@
 // Vercel Serverless Function: /api/analyze
-// Calls OpenAI gpt-4o-mini Vision to analyze food image
-// API key is stored as environment variable OPENAI_API_KEY (never exposed to frontend)
+// Calls OpenRouter (which proxies to OpenAI gpt-4o-mini Vision) to analyze food image
+// API key is stored as environment variable OPENROUTER_API_KEY
 
 export const config = {
   maxDuration: 30,
@@ -14,7 +14,7 @@ const SYSTEM_PROMPT_ZH = `你是一位专业的营养师和食物识别专家。
 3. 给出健康评分 (0-100)
 4. 提供 3 条具体可行的健康建议（每条 1-2 句话，针对这餐的具体食物）
 
-返回 **纯 JSON**（不要 markdown，不要 \`\`\`），结构如下：
+返回 **纯 JSON**(不要 markdown，不要 \`\`\`)，结构如下：
 
 {
   "meal_name": "<餐食名称，如「番茄牛肉面」>",
@@ -70,7 +70,6 @@ Return **pure JSON** (no markdown, no \`\`\`), with this exact structure:
 If no food is detected, return: { "error": "no_food_detected" }`;
 
 export default async function handler(req, res) {
-  // CORS (only if you want to call from other domains; safe to leave for same-origin)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -80,9 +79,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
+    return res.status(500).json({ error: 'OPENROUTER_API_KEY not configured' });
   }
 
   try {
@@ -95,14 +94,16 @@ export default async function handler(req, res) {
     const systemPrompt = lang === 'en' ? SYSTEM_PROMPT_EN : SYSTEM_PROMPT_ZH;
     const userText = lang === 'en' ? 'Analyze this food.' : '分析这张食物照片。';
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://calorie-vision-lyart.vercel.app',
+        'X-Title': 'Calorie Vision',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'openai/gpt-4o-mini',
         max_tokens: 1200,
         messages: [
           { role: 'system', content: systemPrompt },
@@ -114,7 +115,6 @@ export default async function handler(req, res) {
                 type: 'image_url',
                 image_url: {
                   url: `data:${mediaType || 'image/jpeg'};base64,${image}`,
-                  detail: 'low', // 'low' is cheaper and works fine for food
                 },
               },
             ],
@@ -126,13 +126,14 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error('OpenAI error:', errText);
+      console.error('OpenRouter error:', errText);
       return res.status(response.status).json({ error: 'AI service error', detail: errText });
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
+      console.error('Empty content. Full response:', JSON.stringify(data));
       return res.status(500).json({ error: 'Empty response from AI' });
     }
 
@@ -140,7 +141,7 @@ export default async function handler(req, res) {
     try {
       parsed = JSON.parse(content.replace(/```json|```/g, '').trim());
     } catch (e) {
-      console.error('Parse error:', content);
+      console.error('Parse error. Raw content:', content);
       return res.status(500).json({ error: 'Failed to parse AI response' });
     }
 
