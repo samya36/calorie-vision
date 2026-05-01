@@ -4,6 +4,11 @@
 
 export const config = {
   maxDuration: 30,
+  api: {
+    bodyParser: {
+      sizeLimit: '12mb',
+    },
+  },
 };
 
 const SYSTEM_PROMPT_ZH = `你是一位专业的营养师和食物识别专家。分析用户上传的食物照片，返回 JSON 格式的分析结果。
@@ -85,7 +90,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { image, mediaType, lang } = req.body;
+    let body;
+    if (typeof req.body === 'string') {
+      try {
+        body = JSON.parse(req.body);
+      } catch {
+        return res.status(400).json({ error: 'Invalid JSON body' });
+      }
+    } else {
+      body = req.body;
+    }
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ error: 'Invalid JSON body' });
+    }
+
+    const { image, mediaType, lang } = body;
 
     if (!image) {
       return res.status(400).json({ error: 'Missing image' });
