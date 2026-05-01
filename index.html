@@ -118,6 +118,25 @@
 
   /* Quick examples */
   .examples { margin-top: 24px; }
+  .upload-preview {
+    display: none;
+    margin-top: 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px;
+    align-items: center;
+    gap: 10px;
+  }
+  .upload-preview.active { display: flex; }
+  .upload-preview img {
+    width: 60px;
+    height: 60px;
+    border-radius: 10px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .upload-preview-meta { font-size: 12px; color: var(--ink-soft); line-height: 1.45; }
   .examples-label {
     font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
     color: var(--ink-mute); letter-spacing: 0.15em; text-transform: uppercase;
@@ -386,6 +405,10 @@
       <div class="upload-sub" data-i18n="upload-sub">餐桌上的食物 / 外卖 / 零食 都行</div>
     </div>
     <input type="file" id="file-input" accept="image/*" style="display:none">
+    <div class="upload-preview" id="upload-preview">
+      <img id="upload-preview-img" alt="">
+      <div class="upload-preview-meta" id="upload-preview-meta" data-i18n="preview-pending">已选择图片，正在准备上传…</div>
+    </div>
 
     <div class="examples">
       <div class="examples-label" data-i18n="examples-label">可以识别</div>
@@ -558,6 +581,8 @@ const I18N = {
     'support': '支持作者',
     'disclaimer': '仅供参考 · AI 估算可能有误差',
     'error-default': '识别失败，请换一张更清晰的食物照片再试',
+    'preview-pending': '已选择图片，正在准备上传…',
+    'preview-ready': '上传前预览 · 压缩后约 {sizeKB} KB',
     'badge-good': '健康',
     'badge-mid': '中等',
     'badge-bad': '需注意',
@@ -586,6 +611,8 @@ const I18N = {
     'support': 'Support',
     'disclaimer': 'Estimates only · AI may not be perfectly accurate',
     'error-default': 'Could not analyze. Try a clearer food photo.',
+    'preview-pending': 'Image selected. Preparing upload…',
+    'preview-ready': 'Preview before upload · Compressed size ~ {sizeKB} KB',
     'badge-good': 'Healthy',
     'badge-mid': 'Moderate',
     'badge-bad': 'Watch out',
@@ -628,15 +655,26 @@ $('file-input').addEventListener('change', e => {
 });
 
 function handleFile(file) {
+  const previewWrap = $('upload-preview');
+  const previewMeta = $('upload-preview-meta');
+  previewWrap.classList.add('active');
+  previewMeta.textContent = I18N[currentLang]['preview-pending'];
+
   const reader = new FileReader();
   reader.onload = async e => {
     try {
       const optimized = await optimizeImageDataUrl(e.target.result);
       currentImage = optimized;
+      $('upload-preview-img').src = optimized;
+      const kb = Math.max(1, Math.round(estimateBase64Bytes(optimized) / 1024));
+      previewMeta.textContent = I18N[currentLang]['preview-ready'].replace('{sizeKB}', kb);
       analyze();
     } catch (err) {
       console.error('Image optimization failed:', err);
       currentImage = e.target.result; // fallback to original
+      $('upload-preview-img').src = currentImage;
+      const kb = Math.max(1, Math.round(estimateBase64Bytes(currentImage) / 1024));
+      previewMeta.textContent = I18N[currentLang]['preview-ready'].replace('{sizeKB}', kb);
       analyze();
     }
   };
@@ -819,6 +857,8 @@ function animateNumber(el, from, to, duration) {
 $('reset-btn').addEventListener('click', () => {
   currentImage = null; currentResult = null;
   $('file-input').value = '';
+  $('upload-preview').classList.remove('active');
+  $('upload-preview-img').src = '';
   showView('upload');
 });
 
