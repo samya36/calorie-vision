@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Calorie Vision · AI 食物热量分析</title>
+<meta name="description" content="拍一张照，AI 立刻告诉你这餐有多少卡路里。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root {
+    --bg: #FFF8F0;
+    --bg-card: #FFFFFF;
+    --orange: #FF6B35;
+    --orange-light: #FFE5D9;
+    --orange-deep: #E04A1A;
+    --ink: #1A1410;
+    --ink-soft: #5C544D;
+    --ink-mute: #A89E94;
+    --line: #F0E8DD;
+    --green: #4CAF50;
+    --amber: #FFA726;
+    --red: #EF5350;
+    --shadow-sm: 0 2px 8px rgba(255,107,53,0.08);
+    --shadow-md: 0 8px 24px rgba(255,107,53,0.12);
+    --shadow-lg: 0 20px 60px rgba(255,107,53,0.18);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); color: var(--ink); font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  body { min-height: 100vh; position: relative; }
+
+  /* Decorative background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(circle at 10% 0%, rgba(255,107,53,0.08) 0%, transparent 40%),
+      radial-gradient(circle at 90% 100%, rgba(255,167,38,0.06) 0%, transparent 40%);
+    pointer-events: none; z-index: 0;
+  }
+
+  .app { max-width: 480px; margin: 0 auto; padding: 20px 18px 40px; position: relative; z-index: 1; }
+
+  /* Header */
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; padding-top: 8px; }
+  .logo { display: flex; align-items: center; gap: 8px; }
+  .logo-mark {
+    width: 32px; height: 32px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--orange), var(--amber));
+    display: grid; place-items: center;
+    box-shadow: var(--shadow-sm);
+  }
+  .logo-mark svg { width: 18px; height: 18px; }
+  .logo-text {
+    font-family: 'Fraunces', serif;
+    font-weight: 900; font-size: 19px;
+    letter-spacing: -0.02em;
+  }
+  .lang-toggle {
+    display: flex; gap: 0;
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 100px; padding: 3px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500;
+  }
+  .lang-toggle button {
+    background: transparent; border: none; color: var(--ink-mute);
+    padding: 5px 11px; border-radius: 100px; cursor: pointer; font-family: inherit; font-size: inherit;
+    transition: all 0.2s;
+  }
+  .lang-toggle button.active { background: var(--ink); color: white; }
+
+  /* Hero */
+  .hero { text-align: center; padding: 28px 8px 40px; }
+  .hero-eyebrow {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
+    color: var(--orange-deep); letter-spacing: 0.18em; text-transform: uppercase;
+    background: var(--orange-light); padding: 6px 12px; border-radius: 100px;
+    margin-bottom: 20px;
+  }
+  .hero-title {
+    font-family: 'Fraunces', serif; font-weight: 900;
+    font-size: clamp(36px, 9vw, 44px); line-height: 1.05;
+    letter-spacing: -0.03em; color: var(--ink); margin-bottom: 14px;
+  }
+  .hero-title em {
+    font-style: italic; font-weight: 500;
+    background: linear-gradient(120deg, var(--orange), var(--amber));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero-sub { font-size: 15px; color: var(--ink-soft); line-height: 1.6; max-width: 320px; margin: 0 auto; }
+
+  /* Upload Card */
+  .upload-card {
+    background: var(--bg-card); border-radius: 24px; padding: 28px 20px;
+    border: 1.5px dashed var(--orange); position: relative; overflow: hidden;
+    box-shadow: var(--shadow-md); cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.22,1,0.36,1);
+  }
+  .upload-card:active { transform: scale(0.98); }
+  .upload-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, transparent 60%, var(--orange-light) 100%);
+    opacity: 0.5; pointer-events: none;
+  }
+  .upload-icon-wrap {
+    width: 72px; height: 72px; margin: 0 auto 18px; border-radius: 20px;
+    background: linear-gradient(135deg, var(--orange), var(--amber));
+    display: grid; place-items: center;
+    box-shadow: 0 12px 32px rgba(255,107,53,0.35);
+    position: relative; z-index: 1;
+  }
+  .upload-icon-wrap svg { width: 32px; height: 32px; color: white; }
+  .upload-title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 22px; margin-bottom: 6px; text-align: center; position: relative; z-index: 1; }
+  .upload-sub { font-size: 13px; color: var(--ink-soft); text-align: center; line-height: 1.5; position: relative; z-index: 1; }
+
+  /* Quick examples */
+  .examples { margin-top: 24px; }
+  .examples-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
+    color: var(--ink-mute); letter-spacing: 0.15em; text-transform: uppercase;
+    margin-bottom: 10px; text-align: center;
+  }
+  .example-chips {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  }
+  .chip {
+    font-size: 12px; color: var(--ink-soft);
+    background: var(--bg-card); border: 1px solid var(--line);
+    padding: 7px 12px; border-radius: 100px;
+  }
+
+  /* Loading */
+  .loading { padding: 80px 20px; text-align: center; display: none; }
+  .loading.active { display: block; }
+  .spinner {
+    width: 60px; height: 60px; margin: 0 auto 24px;
+    border-radius: 50%;
+    border: 3px solid var(--orange-light);
+    border-top-color: var(--orange);
+    animation: spin 0.9s cubic-bezier(0.55,0.06,0.43,0.94) infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-title { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .loading-sub { font-size: 13px; color: var(--ink-mute); }
+
+  /* Results */
+  .results { display: none; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1); }
+  .results.active { display: block; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+  .photo-wrap {
+    border-radius: 20px; overflow: hidden; margin-bottom: 16px; aspect-ratio: 4/3;
+    background: var(--line);
+  }
+  .photo-wrap img { width: 100%; height: 100%; object-fit: cover; }
+
+  .meal-name {
+    font-family: 'Fraunces', serif; font-weight: 700;
+    font-size: 26px; line-height: 1.15; letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+  .meal-meta { font-size: 13px; color: var(--ink-mute); margin-bottom: 22px; }
+
+  /* Hero number - calorie display */
+  .calorie-hero {
+    background: linear-gradient(135deg, var(--orange), var(--amber));
+    border-radius: 24px; padding: 28px 24px; color: white;
+    position: relative; overflow: hidden; margin-bottom: 18px;
+    box-shadow: var(--shadow-md);
+  }
+  .calorie-hero::before {
+    content: ''; position: absolute; right: -40px; top: -40px; width: 180px; height: 180px;
+    background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .calorie-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
+    letter-spacing: 0.2em; text-transform: uppercase; opacity: 0.85; margin-bottom: 4px;
+    position: relative; z-index: 1;
+  }
+  .calorie-number {
+    font-family: 'Fraunces', serif; font-weight: 900;
+    font-size: 64px; line-height: 1; letter-spacing: -0.04em;
+    position: relative; z-index: 1;
+  }
+  .calorie-unit {
+    font-family: 'Inter', sans-serif; font-size: 18px; font-weight: 500;
+    margin-left: 6px; opacity: 0.9;
+  }
+  .calorie-context {
+    font-size: 12px; opacity: 0.9; margin-top: 8px; position: relative; z-index: 1;
+  }
+
+  /* Macros */
+  .macros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+  .macro-card {
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 16px; padding: 16px 12px; text-align: center;
+  }
+  .macro-icon { font-size: 18px; margin-bottom: 4px; }
+  .macro-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--ink-mute); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px;
+  }
+  .macro-value { font-family: 'Fraunces', serif; font-weight: 700; font-size: 22px; line-height: 1; }
+  .macro-unit { font-size: 11px; color: var(--ink-mute); margin-left: 2px; }
+
+  /* Section Cards */
+  .section {
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 20px; padding: 20px 18px; margin-bottom: 14px;
+  }
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .section-title {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500;
+    color: var(--ink-mute); letter-spacing: 0.15em; text-transform: uppercase;
+  }
+  .section-badge {
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 100px;
+  }
+  .badge-good { background: rgba(76,175,80,0.12); color: var(--green); }
+  .badge-mid { background: rgba(255,167,38,0.15); color: var(--amber); }
+  .badge-bad { background: rgba(239,83,80,0.12); color: var(--red); }
+
+  /* Health score */
+  .health-row { display: flex; align-items: center; gap: 16px; }
+  .health-circle {
+    width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; position: relative;
+  }
+  .health-circle svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+  .health-circle circle { fill: none; stroke-width: 5; }
+  .health-circle .bg { stroke: var(--line); }
+  .health-circle .fg { stroke-linecap: round; transition: stroke-dashoffset 1s cubic-bezier(0.22,1,0.36,1); }
+  .health-num { font-family: 'Fraunces', serif; font-weight: 900; font-size: 22px; }
+  .health-text { flex: 1; }
+  .health-title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 16px; margin-bottom: 2px; }
+  .health-desc { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
+
+  /* Items list */
+  .item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .item:last-child { border-bottom: none; }
+  .item-emoji { font-size: 20px; flex-shrink: 0; }
+  .item-content { flex: 1; }
+  .item-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+  .item-detail { font-size: 12px; color: var(--ink-mute); }
+  .item-cal {
+    font-family: 'Fraunces', serif; font-weight: 700; font-size: 16px; color: var(--orange-deep);
+    align-self: center;
+  }
+
+  /* Tips */
+  .tip { display: flex; gap: 10px; padding: 10px 0; }
+  .tip:not(:last-child) { border-bottom: 1px solid var(--line); }
+  .tip-num {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--orange-light); color: var(--orange-deep);
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+    display: grid; place-items: center; margin-top: 1px;
+  }
+  .tip-text { font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+
+  /* Action buttons */
+  .actions { display: flex; gap: 10px; margin-top: 22px; }
+  .btn {
+    flex: 1; border: none; cursor: pointer; padding: 16px;
+    border-radius: 14px; font-weight: 600; font-size: 14px;
+    font-family: 'Inter', sans-serif; transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary {
+    background: var(--ink); color: white;
+  }
+  .btn-secondary {
+    background: var(--bg-card); border: 1px solid var(--line); color: var(--ink);
+  }
+
+  /* Footer */
+  .footer { text-align: center; margin-top: 32px; padding-bottom: 12px; }
+  .support-btn {
+    background: transparent; border: 1px solid var(--line); color: var(--ink-soft);
+    padding: 10px 18px; border-radius: 100px; font-size: 12px; font-weight: 500;
+    cursor: pointer; font-family: inherit; transition: all 0.2s;
+  }
+  .support-btn:active { transform: scale(0.96); background: var(--bg-card); }
+  .footer-note { font-size: 10px; color: var(--ink-mute); margin-top: 10px; letter-spacing: 0.05em; }
+
+  /* Error */
+  .error {
+    background: rgba(239,83,80,0.08); border: 1px solid rgba(239,83,80,0.2);
+    color: var(--red); padding: 12px 16px; border-radius: 12px;
+    font-size: 13px; margin-bottom: 14px;
+  }
+
+  /* Share modal */
+  .modal {
+    position: fixed; inset: 0; background: rgba(26,20,16,0.7);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: none; align-items: flex-end; justify-content: center;
+    z-index: 100; padding: 16px;
+  }
+  .modal.active { display: flex; animation: fadeIn 0.2s; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal-content {
+    background: var(--bg-card); border-radius: 24px 24px 16px 16px; padding: 20px;
+    width: 100%; max-width: 440px; max-height: 90vh; overflow-y: auto;
+    animation: slideUp 0.3s cubic-bezier(0.22,1,0.36,1);
+  }
+  @keyframes slideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .modal-title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 18px; }
+  .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--ink-mute); padding: 0; line-height: 1; }
+  .share-preview { border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+  .share-preview img { width: 100%; display: block; }
+
+  /* Share card (rendered offscreen for html2canvas) */
+  .share-card-render {
+    position: absolute; left: -9999px; top: 0;
+    width: 1080px; height: 1920px;
+    background: linear-gradient(160deg, #FFF8F0 0%, #FFE5D9 100%);
+    padding: 100px 80px;
+    font-family: 'Inter', sans-serif;
+    color: var(--ink);
+  }
+  .scr-brand { font-family: 'Fraunces', serif; font-weight: 900; font-size: 56px; letter-spacing: -0.02em; margin-bottom: 12px; }
+  .scr-tag { font-family: 'JetBrains Mono', monospace; font-size: 22px; color: var(--orange-deep); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 80px; }
+  .scr-photo { width: 100%; aspect-ratio: 4/3; border-radius: 40px; overflow: hidden; margin-bottom: 60px; box-shadow: 0 30px 80px rgba(255,107,53,0.25); }
+  .scr-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .scr-meal { font-family: 'Fraunces', serif; font-weight: 700; font-size: 64px; line-height: 1.1; margin-bottom: 30px; }
+  .scr-cal-block { background: linear-gradient(135deg, var(--orange), var(--amber)); border-radius: 40px; padding: 60px; color: white; margin-bottom: 50px; }
+  .scr-cal-label { font-family: 'JetBrains Mono', monospace; font-size: 22px; letter-spacing: 0.2em; text-transform: uppercase; opacity: 0.9; margin-bottom: 8px; }
+  .scr-cal-num { font-family: 'Fraunces', serif; font-weight: 900; font-size: 180px; line-height: 1; letter-spacing: -0.04em; }
+  .scr-cal-unit { font-size: 50px; font-weight: 500; margin-left: 16px; }
+  .scr-macros { display: flex; gap: 24px; margin-bottom: 80px; }
+  .scr-macro { flex: 1; background: white; border-radius: 28px; padding: 36px 24px; text-align: center; }
+  .scr-macro-label { font-family: 'JetBrains Mono', monospace; font-size: 18px; color: var(--ink-mute); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 12px; }
+  .scr-macro-val { font-family: 'Fraunces', serif; font-weight: 900; font-size: 56px; }
+  .scr-footer { display: flex; justify-content: space-between; align-items: center; }
+  .scr-footer-left { font-family: 'Fraunces', serif; font-weight: 700; font-size: 28px; }
+  .scr-footer-right { font-family: 'JetBrains Mono', monospace; font-size: 22px; color: var(--ink-mute); }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <header class="header">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v18M5 8c0 4 3 7 7 7s7-3 7-7"/>
+          <circle cx="12" cy="6" r="1.5" fill="white"/>
+        </svg>
+      </div>
+      <span class="logo-text" data-i18n="brand">Calorie Vision</span>
+    </div>
+    <div class="lang-toggle">
+      <button data-lang="zh" class="active">中</button>
+      <button data-lang="en">EN</button>
+    </div>
+  </header>
+
+  <!-- Upload View -->
+  <div id="upload-view">
+    <div class="hero">
+      <div class="hero-eyebrow" data-i18n="eyebrow">AI · 一秒识别热量</div>
+      <h1 class="hero-title">
+        <span data-i18n="title-1">拍一张</span><br>
+        <em data-i18n="title-2">就知道多少卡</em>
+      </h1>
+      <p class="hero-sub" data-i18n="subtitle">用 AI 识别食物，估算卡路里和宏量营养，再给你一份健康建议。</p>
+    </div>
+
+    <div class="upload-card" id="upload-trigger">
+      <div class="upload-icon-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+      </div>
+      <div class="upload-title" data-i18n="upload-title">拍照或上传</div>
+      <div class="upload-sub" data-i18n="upload-sub">餐桌上的食物 / 外卖 / 零食 都行</div>
+    </div>
+    <input type="file" id="file-input" accept="image/*" style="display:none">
+
+    <div class="examples">
+      <div class="examples-label" data-i18n="examples-label">可以识别</div>
+      <div class="example-chips">
+        <span class="chip">🍜 <span data-i18n="ex-1">中餐</span></span>
+        <span class="chip">🍱 <span data-i18n="ex-2">便当</span></span>
+        <span class="chip">🍕 <span data-i18n="ex-3">西餐</span></span>
+        <span class="chip">🥗 <span data-i18n="ex-4">沙拉</span></span>
+        <span class="chip">🧁 <span data-i18n="ex-5">甜点</span></span>
+        <span class="chip">🍵 <span data-i18n="ex-6">饮品</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading View -->
+  <div class="loading" id="loading-view">
+    <div class="spinner"></div>
+    <div class="loading-title" data-i18n="loading-title">正在识别食物…</div>
+    <div class="loading-sub" data-i18n="loading-sub">AI 正在估算热量与营养成分</div>
+  </div>
+
+  <!-- Results View -->
+  <div class="results" id="results-view">
+    <div id="error-box"></div>
+    <div class="photo-wrap"><img id="result-photo" alt=""></div>
+
+    <h2 class="meal-name" id="meal-name">—</h2>
+    <p class="meal-meta" id="meal-meta">—</p>
+
+    <div class="calorie-hero">
+      <div class="calorie-label" data-i18n="cal-label">Total Calories · 总热量</div>
+      <div>
+        <span class="calorie-number" id="calorie-number">0</span>
+        <span class="calorie-unit">kcal</span>
+      </div>
+      <div class="calorie-context" id="calorie-context">—</div>
+    </div>
+
+    <div class="macros">
+      <div class="macro-card">
+        <div class="macro-icon">🌾</div>
+        <div class="macro-label" data-i18n="m-carbs">Carbs</div>
+        <div><span class="macro-value" id="m-carbs">0</span><span class="macro-unit">g</span></div>
+      </div>
+      <div class="macro-card">
+        <div class="macro-icon">🥩</div>
+        <div class="macro-label" data-i18n="m-protein">Protein</div>
+        <div><span class="macro-value" id="m-protein">0</span><span class="macro-unit">g</span></div>
+      </div>
+      <div class="macro-card">
+        <div class="macro-icon">🥑</div>
+        <div class="macro-label" data-i18n="m-fat">Fat</div>
+        <div><span class="macro-value" id="m-fat">0</span><span class="macro-unit">g</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">
+        <div class="section-title" data-i18n="health-title">Health Score · 健康评分</div>
+        <span class="section-badge" id="health-badge">—</span>
+      </div>
+      <div class="health-row">
+        <div class="health-circle">
+          <svg width="64" height="64">
+            <circle class="bg" cx="32" cy="32" r="27"/>
+            <circle class="fg" id="health-arc" cx="32" cy="32" r="27" stroke="#FF6B35" stroke-dasharray="170" stroke-dashoffset="170"/>
+          </svg>
+          <span class="health-num" id="health-num">0</span>
+        </div>
+        <div class="health-text">
+          <div class="health-title" id="health-title">—</div>
+          <div class="health-desc" id="health-desc">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="items-section">
+      <div class="section-head">
+        <div class="section-title" data-i18n="items-title">Identified Items · 识别到的食物</div>
+      </div>
+      <div id="items-list"></div>
+    </div>
+
+    <div class="section" id="tips-section">
+      <div class="section-head">
+        <div class="section-title" data-i18n="tips-title">Tips · 健康建议</div>
+      </div>
+      <div id="tips-list"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-secondary" id="reset-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+        <span data-i18n="btn-again">再测一张</span>
+      </button>
+      <button class="btn btn-primary" id="share-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
+        <span data-i18n="btn-share">生成分享卡</span>
+      </button>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <button class="support-btn" id="support-btn">☕ <span data-i18n="support">支持作者</span></button>
+    <div class="footer-note" data-i18n="disclaimer">仅供参考 · AI 估算可能有误差</div>
+  </footer>
+
+</div>
+
+<!-- Share Modal -->
+<div class="modal" id="share-modal">
+  <div class="modal-content">
+    <div class="modal-head">
+      <div class="modal-title" data-i18n="share-title">分享卡片</div>
+      <button class="modal-close" id="modal-close">×</button>
+    </div>
+    <div class="share-preview"><img id="share-preview-img" alt=""></div>
+    <button class="btn btn-primary" id="download-btn" style="width:100%">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      <span data-i18n="btn-download">下载图片</span>
+    </button>
+  </div>
+</div>
+
+<!-- Hidden share card render target -->
+<div class="share-card-render" id="share-card">
+  <div class="scr-brand">Calorie Vision</div>
+  <div class="scr-tag">AI · CALORIE ANALYSIS</div>
+  <div class="scr-photo"><img id="scr-photo-img" alt=""></div>
+  <div class="scr-meal" id="scr-meal">—</div>
+  <div class="scr-cal-block">
+    <div class="scr-cal-label">Total Calories</div>
+    <div><span class="scr-cal-num" id="scr-cal-num">0</span><span class="scr-cal-unit">kcal</span></div>
+  </div>
+  <div class="scr-macros">
+    <div class="scr-macro"><div class="scr-macro-label">Carbs</div><div class="scr-macro-val" id="scr-c">0g</div></div>
+    <div class="scr-macro"><div class="scr-macro-label">Protein</div><div class="scr-macro-val" id="scr-p">0g</div></div>
+    <div class="scr-macro"><div class="scr-macro-label">Fat</div><div class="scr-macro-val" id="scr-f">0g</div></div>
+  </div>
+  <div class="scr-footer">
+    <div class="scr-footer-left">Made by Deliadou</div>
+    <div class="scr-footer-right">calorie-vision.app</div>
+  </div>
+</div>
+
+<script>
+// ============== I18N ==============
+const I18N = {
+  zh: {
+    'brand': 'Calorie Vision',
+    'eyebrow': 'AI · 一秒识别热量',
+    'title-1': '拍一张',
+    'title-2': '就知道多少卡',
+    'subtitle': '用 AI 识别食物，估算卡路里和宏量营养，再给你一份健康建议。',
+    'upload-title': '拍照或上传',
+    'upload-sub': '餐桌上的食物 / 外卖 / 零食 都行',
+    'examples-label': '可以识别',
+    'ex-1': '中餐', 'ex-2': '便当', 'ex-3': '西餐', 'ex-4': '沙拉', 'ex-5': '甜点', 'ex-6': '饮品',
+    'loading-title': '正在识别食物…',
+    'loading-sub': 'AI 正在估算热量与营养成分',
+    'cal-label': '总热量',
+    'm-carbs': '碳水', 'm-protein': '蛋白质', 'm-fat': '脂肪',
+    'health-title': '健康评分',
+    'items-title': '识别到的食物',
+    'tips-title': '健康建议',
+    'btn-again': '再测一张',
+    'btn-share': '生成分享卡',
+    'btn-download': '下载图片',
+    'share-title': '分享卡片',
+    'support': '支持作者',
+    'disclaimer': '仅供参考 · AI 估算可能有误差',
+    'error-default': '识别失败，请换一张更清晰的食物照片再试',
+    'badge-good': '健康',
+    'badge-mid': '中等',
+    'badge-bad': '需注意',
+  },
+  en: {
+    'brand': 'Calorie Vision',
+    'eyebrow': 'AI · Instant Calorie Detection',
+    'title-1': 'Snap a photo',
+    'title-2': 'know the calories',
+    'subtitle': 'AI identifies your food, estimates calories and macros, then gives you a health tip.',
+    'upload-title': 'Take or Upload Photo',
+    'upload-sub': 'Meals, takeout, snacks — anything edible',
+    'examples-label': 'Works with',
+    'ex-1': 'Asian', 'ex-2': 'Bento', 'ex-3': 'Western', 'ex-4': 'Salad', 'ex-5': 'Dessert', 'ex-6': 'Drinks',
+    'loading-title': 'Analyzing your food…',
+    'loading-sub': 'AI is estimating calories and macros',
+    'cal-label': 'Total Calories',
+    'm-carbs': 'Carbs', 'm-protein': 'Protein', 'm-fat': 'Fat',
+    'health-title': 'Health Score',
+    'items-title': 'Identified Items',
+    'tips-title': 'Tips',
+    'btn-again': 'Analyze Another',
+    'btn-share': 'Share Card',
+    'btn-download': 'Download',
+    'share-title': 'Share Card',
+    'support': 'Support',
+    'disclaimer': 'Estimates only · AI may not be perfectly accurate',
+    'error-default': 'Could not analyze. Try a clearer food photo.',
+    'badge-good': 'Healthy',
+    'badge-mid': 'Moderate',
+    'badge-bad': 'Watch out',
+  }
+};
+
+let currentLang = (() => {
+  const saved = localStorage.getItem('lang');
+  if (saved) return saved;
+  return navigator.language.startsWith('zh') ? 'zh' : 'en';
+})();
+
+function applyLang() {
+  document.documentElement.lang = currentLang;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (I18N[currentLang][key]) el.textContent = I18N[currentLang][key];
+  });
+  document.querySelectorAll('.lang-toggle button').forEach(b => {
+    b.classList.toggle('active', b.dataset.lang === currentLang);
+  });
+  localStorage.setItem('lang', currentLang);
+}
+
+document.querySelectorAll('.lang-toggle button').forEach(b => {
+  b.addEventListener('click', () => { currentLang = b.dataset.lang; applyLang(); });
+});
+
+// ============== APP STATE ==============
+let currentImage = null;
+let currentResult = null;
+
+const $ = id => document.getElementById(id);
+
+// ============== UPLOAD ==============
+$('upload-trigger').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) handleFile(file);
+});
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    currentImage = e.target.result; // base64 with prefix
+    analyze();
+  };
+  reader.readAsDataURL(file);
+}
+
+// ============== ANALYZE ==============
+async function analyze() {
+  showView('loading');
+  try {
+    const base64 = currentImage.split(',')[1];
+    const mediaType = currentImage.match(/^data:(.+?);/)[1];
+
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64, mediaType, lang: currentLang })
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    currentResult = data;
+    renderResult(data);
+    showView('results');
+  } catch (err) {
+    console.error(err);
+    showView('upload');
+    alert(I18N[currentLang]['error-default']);
+  }
+}
+
+function showView(view) {
+  $('upload-view').style.display = view === 'upload' ? 'block' : 'none';
+  $('loading-view').classList.toggle('active', view === 'loading');
+  $('results-view').classList.toggle('active', view === 'results');
+}
+
+// ============== RENDER ==============
+function renderResult(d) {
+  $('result-photo').src = currentImage;
+
+  $('meal-name').textContent = d.meal_name || '—';
+  $('meal-meta').textContent = d.portion_estimate || '—';
+
+  // Animate calorie counter
+  animateNumber($('calorie-number'), 0, d.total_calories, 800);
+  $('calorie-context').textContent = d.calorie_context || '—';
+
+  $('m-carbs').textContent = d.macros?.carbs_g ?? 0;
+  $('m-protein').textContent = d.macros?.protein_g ?? 0;
+  $('m-fat').textContent = d.macros?.fat_g ?? 0;
+
+  // Health score
+  const score = d.health_score || 0;
+  $('health-num').textContent = score;
+  const arc = $('health-arc');
+  const circ = 2 * Math.PI * 27;
+  arc.style.strokeDasharray = circ;
+  setTimeout(() => { arc.style.strokeDashoffset = circ - (score / 100) * circ; }, 200);
+
+  const badge = $('health-badge');
+  if (score >= 75) {
+    badge.className = 'section-badge badge-good';
+    badge.textContent = I18N[currentLang]['badge-good'];
+    arc.setAttribute('stroke', '#4CAF50');
+  } else if (score >= 50) {
+    badge.className = 'section-badge badge-mid';
+    badge.textContent = I18N[currentLang]['badge-mid'];
+    arc.setAttribute('stroke', '#FFA726');
+  } else {
+    badge.className = 'section-badge badge-bad';
+    badge.textContent = I18N[currentLang]['badge-bad'];
+    arc.setAttribute('stroke', '#EF5350');
+  }
+  $('health-title').textContent = d.health_title || '—';
+  $('health-desc').textContent = d.health_description || '—';
+
+  // Items
+  const itemsList = $('items-list');
+  itemsList.innerHTML = '';
+  (d.items || []).forEach(it => {
+    itemsList.insertAdjacentHTML('beforeend', `
+      <div class="item">
+        <div class="item-emoji">${it.emoji || '🍽️'}</div>
+        <div class="item-content">
+          <div class="item-name">${it.name}</div>
+          <div class="item-detail">${it.portion || ''}</div>
+        </div>
+        <div class="item-cal">${it.calories} kcal</div>
+      </div>
+    `);
+  });
+
+  // Tips
+  const tipsList = $('tips-list');
+  tipsList.innerHTML = '';
+  (d.tips || []).forEach((t, i) => {
+    tipsList.insertAdjacentHTML('beforeend', `
+      <div class="tip">
+        <div class="tip-num">${i + 1}</div>
+        <div class="tip-text">${t}</div>
+      </div>
+    `);
+  });
+}
+
+function animateNumber(el, from, to, duration) {
+  const start = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(from + (to - from) * eased);
+    if (t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ============== ACTIONS ==============
+$('reset-btn').addEventListener('click', () => {
+  currentImage = null; currentResult = null;
+  $('file-input').value = '';
+  showView('upload');
+});
+
+$('share-btn').addEventListener('click', generateShareCard);
+
+async function generateShareCard() {
+  if (!currentResult) return;
+  $('scr-photo-img').src = currentImage;
+  $('scr-meal').textContent = currentResult.meal_name;
+  $('scr-cal-num').textContent = currentResult.total_calories;
+  $('scr-c').textContent = (currentResult.macros?.carbs_g ?? 0) + 'g';
+  $('scr-p').textContent = (currentResult.macros?.protein_g ?? 0) + 'g';
+  $('scr-f').textContent = (currentResult.macros?.fat_g ?? 0) + 'g';
+
+  // Wait for image to load
+  await new Promise(resolve => {
+    if ($('scr-photo-img').complete) return resolve();
+    $('scr-photo-img').onload = resolve;
+  });
+
+  const canvas = await html2canvas($('share-card'), { scale: 1, useCORS: true, backgroundColor: null });
+  const dataUrl = canvas.toDataURL('image/png');
+  $('share-preview-img').src = dataUrl;
+  $('download-btn').onclick = () => {
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `calorie-vision-${Date.now()}.png`;
+    a.click();
+  };
+  $('share-modal').classList.add('active');
+}
+
+$('modal-close').addEventListener('click', () => $('share-modal').classList.remove('active'));
+$('share-modal').addEventListener('click', e => { if (e.target.id === 'share-modal') $('share-modal').classList.remove('active'); });
+
+$('support-btn').addEventListener('click', () => {
+  if (currentLang === 'zh') {
+    alert('感谢支持！\n\n请加微信号 kbhero21 备注 "calorie 支持"\n我会发收款码给你 🙏');
+  } else {
+    window.open('https://ko-fi.com/deliadou', '_blank');
+  }
+});
+
+// Init
+applyLang();
+showView('upload');
+</script>
+
+</body>
+</html>
