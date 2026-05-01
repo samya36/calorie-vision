@@ -628,11 +628,6 @@ $('file-input').addEventListener('change', e => {
 });
 
 function handleFile(file) {
-  const maxRawBytes = 3 * 1024 * 1024;
-  if (file.size > maxRawBytes) {
-    alert(I18N[currentLang]['error-default']);
-  }
-
   const reader = new FileReader();
   reader.onload = async e => {
     try {
@@ -650,7 +645,7 @@ function handleFile(file) {
 
 async function optimizeImageDataUrl(dataUrl) {
   const img = await loadImage(dataUrl);
-  const maxDim = 1600;
+  const maxDim = 2048;
   const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
   const targetW = Math.max(1, Math.round(img.naturalWidth * scale));
   const targetH = Math.max(1, Math.round(img.naturalHeight * scale));
@@ -661,12 +656,17 @@ async function optimizeImageDataUrl(dataUrl) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, targetW, targetH);
 
+  const originalBytes = estimateBase64Bytes(dataUrl);
   const limitBytes = 3.5 * 1024 * 1024;
-  let quality = 0.9;
+  if (originalBytes <= limitBytes) {
+    return dataUrl;
+  }
+
+  let quality = 0.92;
   let output = canvas.toDataURL('image/jpeg', quality);
 
-  while (estimateBase64Bytes(output) > limitBytes && quality > 0.45) {
-    quality -= 0.1;
+  while (estimateBase64Bytes(output) > limitBytes && quality > 0.65) {
+    quality -= 0.05;
     output = canvas.toDataURL('image/jpeg', quality);
   }
 
@@ -703,7 +703,9 @@ async function analyze() {
 
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || `HTTP ${res.status}`);
+      const e = new Error(errData.error || `HTTP ${res.status}`);
+      e.status = res.status;
+      throw e;
     }
 
     const data = await res.json();
@@ -713,6 +715,16 @@ async function analyze() {
   } catch (err) {
     console.error(err);
     showView('upload');
+    if (err.message === 'no_food_detected') {
+      alert(I18N[currentLang]['error-default']);
+      return;
+    }
+    if (err.status === 413) {
+      alert(currentLang === 'en'
+        ? 'Image is too large. Please try another photo or screenshot before uploading.'
+        : '图片体积过大，请先截图或换一张后再试。');
+      return;
+    }
     alert(I18N[currentLang]['error-default']);
   }
 }
