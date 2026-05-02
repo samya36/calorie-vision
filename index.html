@@ -295,6 +295,14 @@
     color: var(--red); padding: 12px 16px; border-radius: 12px;
     font-size: 13px; margin-bottom: 14px;
   }
+  .error-toast {
+    position: fixed; left: 50%; top: 16px; transform: translate(-50%, -120%);
+    background: #1A1410; color: #FFE5D9; padding: 12px 18px; border-radius: 14px;
+    font-size: 13.5px; line-height: 1.5; max-width: min(440px, calc(100vw - 32px));
+    box-shadow: 0 14px 40px rgba(0,0,0,0.25); z-index: 200; opacity: 0;
+    transition: transform 0.35s cubic-bezier(0.22,1,0.36,1), opacity 0.25s;
+  }
+  .error-toast.active { transform: translate(-50%, 0); opacity: 1; }
 
   /* Share modal */
   .modal {
@@ -345,6 +353,8 @@
 </style>
 </head>
 <body>
+
+<div id="error-toast" class="error-toast" role="alert"></div>
 
 <div class="app">
 
@@ -625,15 +635,96 @@ $('upload-trigger').addEventListener('click', () => $('file-input').click());
 $('file-input').addEventListener('change', e => {
   const file = e.target.files[0];
   if (file) handleFile(file);
+  e.target.value = '';
 });
 
-function handleFile(file) {
-  const reader = new FileReader();
-  reader.onload = e => {
-    currentImage = e.target.result; // base64 with prefix
-    analyze();
-  };
-  reader.readAsDataURL(file);
+const MAX_DIMENSION = 1280;
+const TARGET_QUALITY = 0.82;
+// Keep the base64 data URL under ~3.8MB so the final JSON request stays well below
+// Vercel's 4.5MB request body limit (Hobby tier).
+const MAX_DATAURL_BYTES = 3.8 * 1024 * 1024;
+
+function isHeic(file) {
+  const name = (file.name || '').toLowerCase();
+  const type = (file.type || '').toLowerCase();
+  return type.includes('heic') || type.includes('heif') || name.endsWith('.heic') || name.endsWith('.heif');
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image_decode_failed')); };
+    img.src = url;
+  });
+}
+
+async function compressImage(file) {
+  const img = await loadImage(file);
+  let { width, height } = img;
+  const scale = Math.min(1, MAX_DIMENSION / Math.max(width, height));
+  width = Math.round(width * scale);
+  height = Math.round(height * scale);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, width, height);
+
+  let quality = TARGET_QUALITY;
+  let dataUrl = canvas.toDataURL('image/jpeg', quality);
+  while (dataUrl.length > MAX_DATAURL_BYTES && quality > 0.4) {
+    quality -= 0.12;
+    dataUrl = canvas.toDataURL('image/jpeg', quality);
+  }
+  // Last resort: shrink the canvas if quality reduction wasn't enough.
+  let attempt = 0;
+  while (dataUrl.length > MAX_DATAURL_BYTES && attempt < 3) {
+    width = Math.round(width * 0.85);
+    height = Math.round(height * 0.85);
+    canvas.width = width;
+    canvas.height = height;
+    ctx.drawImage(img, 0, 0, width, height);
+    dataUrl = canvas.toDataURL('image/jpeg', quality);
+    attempt++;
+  }
+  return dataUrl;
+}
+
+async function handleFile(file) {
+  if (isHeic(file)) {
+    showError(currentLang === 'zh'
+      ? 'iPhone 拍的 HEIC 照片暂不支持，请在「设置 → 相机 → 格式」改为「兼容性最佳」，或先把图片保存为 JPG 再上传。'
+      : 'HEIC photos from iPhone are not supported. Please switch Camera format to "Most Compatible", or save the image as JPG first.');
+    return;
+  }
+  if (!file.type.startsWith('image/')) {
+    showError(currentLang === 'zh' ? '请选择图片文件' : 'Please choose an image file.');
+    return;
+  }
+
+  showView('loading');
+  try {
+    currentImage = await compressImage(file);
+    await analyze();
+  } catch (err) {
+    console.error('compress error:', err);
+    showView('upload');
+    showError(currentLang === 'zh'
+      ? '图片读取失败，请换一张试试'
+      : 'Failed to read the image. Please try another one.');
+  }
+}
+
+function showError(msg) {
+  const toast = $('error-toast');
+  if (!toast) { alert(msg); return; }
+  toast.textContent = msg;
+  toast.classList.add('active');
+  clearTimeout(showError._t);
+  showError._t = setTimeout(() => toast.classList.remove('active'), 6000);
 }
 
 // ============== ANALYZE ==============
@@ -641,17 +732,27 @@ async function analyze() {
   showView('loading');
   try {
     const base64 = currentImage.split(',')[1];
-    const mediaType = currentImage.match(/^data:(.+?);/)[1];
+    const mediaType = (currentImage.match(/^data:(.+?);/) || [null, 'image/jpeg'])[1];
 
-    const res = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: base64, mediaType, lang: currentLang })
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+    let res;
+    try {
+      res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64, mediaType, lang: currentLang }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || `HTTP ${res.status}`);
+      const reason = errData.error || `HTTP ${res.status}`;
+      throw Object.assign(new Error(reason), { status: res.status, detail: errData.detail });
     }
 
     const data = await res.json();
@@ -659,10 +760,33 @@ async function analyze() {
     renderResult(data);
     showView('results');
   } catch (err) {
-    console.error(err);
+    console.error('analyze error:', err);
     showView('upload');
-    alert(I18N[currentLang]['error-default']);
+    showError(friendlyError(err));
   }
+}
+
+function friendlyError(err) {
+  const zh = currentLang === 'zh';
+  if (err.name === 'AbortError') {
+    return zh ? 'AI 响应超时，请稍后重试或换一张图。' : 'AI response timed out. Please retry or try another photo.';
+  }
+  if (err.status === 413 || (err.message || '').toLowerCase().includes('payload')) {
+    return zh ? '图片太大，已自动压缩仍超出限制，请换张更小的照片。' : 'Image too large even after compression. Please use a smaller photo.';
+  }
+  if (err.message === 'no_food_detected') {
+    return zh ? '照片里没找到食物，请换一张包含食物的照片。' : 'No food detected. Please upload a photo with visible food.';
+  }
+  if (err.status === 401 || err.message?.includes('not configured') || err.message?.includes('API key')) {
+    return zh ? '服务暂未配置完成（API 密钥问题），请联系作者。' : 'Service not fully configured (API key issue). Please contact the author.';
+  }
+  if (err.status === 429) {
+    return zh ? '请求太频繁了，稍等一下再试。' : 'Too many requests. Please wait a moment and try again.';
+  }
+  if (err.status >= 500 || (err.message || '').includes('Failed to fetch')) {
+    return zh ? '服务器开小差了，稍后再试。' : 'Server hiccup. Please try again shortly.';
+  }
+  return I18N[currentLang]['error-default'];
 }
 
 function showView(view) {
