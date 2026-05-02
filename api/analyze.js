@@ -4,6 +4,11 @@
 
 export const config = {
   maxDuration: 30,
+  api: {
+    bodyParser: {
+      sizeLimit: '6mb',
+    },
+  },
 };
 
 const SYSTEM_PROMPT_ZH = `你是一位专业的营养师和食物识别专家。分析用户上传的食物照片，返回 JSON 格式的分析结果。
@@ -85,64 +90,103 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { image, mediaType, lang } = req.body;
+    const { image, mediaType, lang } = req.body || {};
 
-    if (!image) {
+    if (!image || typeof image !== 'string') {
       return res.status(400).json({ error: 'Missing image' });
     }
+
+    const approxBytes = Math.floor(image.length * 0.75);
+    if (approxBytes > 6 * 1024 * 1024) {
+      return res.status(413).json({ error: 'payload_too_large' });
+    }
+
+    const safeMediaType = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(mediaType || '')
+      ? mediaType
+      : 'image/jpeg';
 
     const systemPrompt = lang === 'en' ? SYSTEM_PROMPT_EN : SYSTEM_PROMPT_ZH;
     const userText = lang === 'en' ? 'Analyze this food.' : '分析这张食物照片。';
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://calorie-vision-lyart.vercel.app',
-        'X-Title': 'Calorie Vision',
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        max_tokens: 1200,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: userText },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:${mediaType || 'image/jpeg'};base64,${image}`,
+    const upstreamController = new AbortController();
+    const upstreamTimeout = setTimeout(() => upstreamController.abort(), 25000);
+
+    let response;
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://calorie-vision-lyart.vercel.app',
+          'X-Title': 'Calorie Vision',
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-4o-mini',
+          max_tokens: 1200,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: userText },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${safeMediaType};base64,${image}`,
+                  },
                 },
-              },
-            ],
-          },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
+              ],
+            },
+          ],
+          response_format: { type: 'json_object' },
+        }),
+        signal: upstreamController.signal,
+      });
+    } catch (fetchErr) {
+      clearTimeout(upstreamTimeout);
+      if (fetchErr.name === 'AbortError') {
+        console.error('OpenRouter timeout');
+        return res.status(504).json({ error: 'upstream_timeout' });
+      }
+      console.error('OpenRouter fetch failed:', fetchErr);
+      return res.status(502).json({ error: 'upstream_unreachable', detail: fetchErr.message });
+    }
+    clearTimeout(upstreamTimeout);
 
     if (!response.ok) {
-      const errText = await response.text();
-      console.error('OpenRouter error:', errText);
-      return res.status(response.status).json({ error: 'AI service error', detail: errText });
+      const errText = await response.text().catch(() => '');
+      console.error('OpenRouter error:', response.status, errText);
+      const status = response.status === 401 || response.status === 403 ? 502 : response.status;
+      return res.status(status).json({ error: 'AI service error', detail: errText.slice(0, 500) });
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (e) {
+      console.error('OpenRouter returned non-JSON');
+      return res.status(502).json({ error: 'invalid_upstream_response' });
+    }
+
+    if (data.error) {
+      console.error('OpenRouter logical error:', JSON.stringify(data.error));
+      return res.status(502).json({ error: 'AI service error', detail: data.error.message || 'unknown' });
+    }
+
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
-      console.error('Empty content. Full response:', JSON.stringify(data));
-      return res.status(500).json({ error: 'Empty response from AI' });
+      console.error('Empty content. Full response:', JSON.stringify(data).slice(0, 800));
+      return res.status(502).json({ error: 'Empty response from AI' });
     }
 
     let parsed;
     try {
-      parsed = JSON.parse(content.replace(/```json|```/g, '').trim());
+      const cleaned = content.replace(/```json|```/g, '').trim();
+      parsed = JSON.parse(cleaned);
     } catch (e) {
-      console.error('Parse error. Raw content:', content);
-      return res.status(500).json({ error: 'Failed to parse AI response' });
+      console.error('Parse error. Raw content:', content.slice(0, 500));
+      return res.status(502).json({ error: 'Failed to parse AI response' });
     }
 
     if (parsed.error === 'no_food_detected') {
