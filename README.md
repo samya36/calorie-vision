@@ -18,8 +18,8 @@ AI 食物热量分析 · 拍一张照，立刻知道这餐多少卡。
 2. **Add New** → **Project** → 选刚才创建的仓库
 3. **Framework Preset** 选 **Other**
 4. **Environment Variables** 加一项：
-   - Name: `OPENAI_API_KEY`
-   - Value: 你的 OpenAI API key（sk-... 开头）
+   - Name: `OPENROUTER_API_KEY`
+   - Value: 你的 OpenRouter API key
 5. 点 **Deploy** → 30 秒后拿到链接
 
 ### 3. 测试

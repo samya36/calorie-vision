@@ -558,6 +558,7 @@ const I18N = {
     'support': '支持作者',
     'disclaimer': '仅供参考 · AI 估算可能有误差',
     'error-default': '识别失败，请换一张更清晰的食物照片再试',
+    'error-no-food': '未检测到食物，请重新拍摄',
     'badge-good': '健康',
     'badge-mid': '中等',
     'badge-bad': '需注意',
@@ -586,6 +587,7 @@ const I18N = {
     'support': 'Support',
     'disclaimer': 'Estimates only · AI may not be perfectly accurate',
     'error-default': 'Could not analyze. Try a clearer food photo.',
+    'error-no-food': 'No food detected. Please try again.',
     'badge-good': 'Healthy',
     'badge-mid': 'Moderate',
     'badge-bad': 'Watch out',
@@ -630,8 +632,34 @@ $('file-input').addEventListener('change', e => {
 function handleFile(file) {
   const reader = new FileReader();
   reader.onload = e => {
-    currentImage = e.target.result; // base64 with prefix
-    analyze();
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      const MAX_SIZE = 1024;
+
+      if (width > height) {
+        if (width > MAX_SIZE) {
+          height = Math.round(height * MAX_SIZE / width);
+          width = MAX_SIZE;
+        }
+      } else {
+        if (height > MAX_SIZE) {
+          width = Math.round(width * MAX_SIZE / height);
+          height = MAX_SIZE;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      currentImage = canvas.toDataURL('image/jpeg', 0.8);
+      analyze();
+    };
+    img.src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
@@ -661,7 +689,11 @@ async function analyze() {
   } catch (err) {
     console.error(err);
     showView('upload');
-    alert(I18N[currentLang]['error-default']);
+    if (err.message === 'no_food_detected') {
+      alert(I18N[currentLang]['error-no-food']);
+    } else {
+      alert(I18N[currentLang]['error-default']);
+    }
   }
 }
 
